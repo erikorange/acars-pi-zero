@@ -1,0 +1,15 @@
+{
+    "timestamp": 1637633452.3061831,
+    "station_id": "rpi-zero-1",
+    "channel": 0,
+    "freq": 131.550,
+    "level": -18,
+    "error": 0,
+    "mode": "2",
+    "label": "Q0",
+    "block_id": "9",
+    "ack": false,
+    "tail": "N978UY",
+    "flight": "US1936",
+    "msgno": "S67A"
+}
