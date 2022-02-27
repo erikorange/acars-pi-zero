@@ -44,18 +44,17 @@ rotation = 270
 # Get drawing object to draw on image.
 draw = ImageDraw.Draw(image)
 
-# Draw a black filled box to clear the image.
-draw.rectangle((0, 0, width, height), outline=0, fill=(0, 0, 0))
+# Draw a filled box to clear the image.
+draw.rectangle((0, 0, width, height), outline=0, fill=(0, 4, 75))
 disp.image(image, rotation)
-# Draw some shapes.
-# First define some constants to allow easy resizing of shapes.
-padding = -2
-top = padding
-bottom = height - padding
-# Move left to right keeping track of the current x position for drawing shapes.
+
+top = -5
 x = 0
+count = 0
 
 font = ImageFont.truetype("/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans.ttf", 22)
+msgFont = ImageFont.truetype("/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans.ttf", 30)
+csFont = ImageFont.truetype("/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans.ttf", 40)
 
 # Turn on the backlight
 backlight = digitalio.DigitalInOut(board.D22)
@@ -66,9 +65,6 @@ buttonA = digitalio.DigitalInOut(board.D23)
 buttonB = digitalio.DigitalInOut(board.D24)
 buttonA.switch_to_input()
 buttonB.switch_to_input()
-
-# Draw a black filled box to clear the image.
-draw.rectangle((0, 0, width, height), outline=0, fill=0)
 
 pagenum=1
 
@@ -84,7 +80,6 @@ disp.image(image, rotation)
 
 lastCallsign = ""
 curCallsign = ""
-rowSpacing = 3
 
 while True:
 
@@ -96,14 +91,14 @@ while True:
 
     else:
         rawData = data.decode('utf-8').replace("\r\n","");
-        print(rawData)
         try:
             j = json.loads(rawData)
 
         except Exception as xcp:
             print(str(xcp))
             print(data)
-            
+
+        count += 1
         curCallsign = j['flight']
         timestamp = time.strftime('%m-%d-%Y %H:%M:%S', time.localtime(j['timestamp']))
         msgno = j['msgno']
@@ -122,19 +117,16 @@ while True:
         if (curCallsign != lastCallsign):
             lastCallsign = curCallsign
 
-            draw.rectangle((0, 0, width, height), outline=0, fill=0)
+            draw.rectangle((0, 0, width, height), outline=0, fill=(0, 4, 75))
 
             y = top
-
-            cs_msgno = curCallsign + " " + msgno
-            draw.text((x, y), cs_msgno, font=font, fill="#FFFFFF")
-            y += font.getsize(cs_msgno)[1] + rowSpacing
-
-            draw.text((x, y), timestamp, font=font, fill="#FFFF00")
-            y += font.getsize(timestamp)[1] + rowSpacing
-
+            draw.text((x, y), curCallsign, font=csFont, fill=(255, 165, 0))
+            draw.text((x, 40), timestamp, font=font, fill="#FFFF00")
+            
             if hasText:
-                draw.text((x, y), s_message[0:20], font=font, fill="#FF00FF")
+                draw.text((x, 70), s_message[0:20], font=msgFont, fill="#FF00FF")
+
+            draw.text((110, 105), str(count), font=font, fill="#FFFFFF")
 
             disp.image(image, rotation)
         
@@ -145,6 +137,17 @@ while True:
 
         # scroll existing test
 
+        #if (curState == State.INFO):
+        #    if (startAgain):
+        #        startTime = datetime.datetime.now()
+        #        startCount = adsbCount
+        #        startAgain = False
+        #    
+        #    endTime = datetime.datetime.now()
+        #    delta = (endTime - startTime).total_seconds()
+        #    if (delta >= 1.0):
+        #        squitterRate = adsbCount - startCount
+        #        startAgain = True
 
 
 
