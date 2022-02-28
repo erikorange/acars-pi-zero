@@ -10,6 +10,25 @@ import socket
 import json
 
 
+def getData():
+    try:
+        data, address = sck.recvfrom(1024)
+
+    except Exception as msg:
+        return(False, "")
+
+    else:
+        rawData = data.decode('utf-8').replace("\r\n","");
+        try:
+            j = json.loads(rawData)
+
+        except Exception as xcp:
+            return(False, "")
+
+        else:
+            return(True, j)
+
+
 # Configuration for CS and DC pins (these are FeatherWing defaults on M0/M4):
 cs_pin = digitalio.DigitalInOut(board.CE0)
 dc_pin = digitalio.DigitalInOut(board.D25)
@@ -74,34 +93,19 @@ sck.bind(('127.0.0.1', 5555))
 sck.setblocking(0)
 
 msg = "Listening..."
-y = font.getsize(msg)[1]*2
-draw.text((x, y), msg, font=font, fill="#FFFF00")
+draw.text((x, 50), msg, font=msgFont, fill="#00FF00")
 disp.image(image, rotation)
 
 lastCallsign = ""
 curCallsign = ""
 
 while True:
-
-    try:
-        data, address = sck.recvfrom(1024)
-
-    except Exception as msg:
-        pass
-
-    else:
-        rawData = data.decode('utf-8').replace("\r\n","");
-        try:
-            j = json.loads(rawData)
-
-        except Exception as xcp:
-            print(str(xcp))
-            print(data)
-
+    (status, j) = getData()
+    
+    if (status):
         count += 1
         curCallsign = j['flight']
         timestamp = time.strftime('%m-%d-%Y %H:%M:%S', time.localtime(j['timestamp']))
-        msgno = j['msgno']
         if 'text' in j:
             hasText = True
             s_message = j['text']
@@ -113,23 +117,33 @@ while True:
         else:
             hasText = False
             
-    finally:
-        if (curCallsign != lastCallsign):
-            lastCallsign = curCallsign
-
-            draw.rectangle((0, 0, width, height), outline=0, fill=(0, 4, 75))
-
-            y = top
-            draw.text((x, y), curCallsign, font=csFont, fill=(255, 165, 0))
-            draw.text((x, 40), timestamp, font=font, fill="#FFFF00")
-            
-            if hasText:
-                draw.text((x, 70), s_message[0:20], font=msgFont, fill="#FF00FF")
-
-            draw.text((110, 105), str(count), font=font, fill="#FFFFFF")
-
-            disp.image(image, rotation)
+    
+        draw.rectangle((0, 0, width, height), outline=0, fill=(0, 4, 75))
+        y = top
+        draw.text((x, y), curCallsign, font=csFont, fill=(255, 165, 0))
+        draw.text((x, 40), timestamp, font=font, fill="#FFFF00")
         
+        if hasText:
+            draw.text((x, 70), s_message[0:20], font=msgFont, fill="#FF00FF")
+        else:
+            draw.text((x, 70), "<no message>", font=msgFont, fill="#FF00FF")
+
+        draw.text((105, 105), str(count), font=font, fill="#FFFFFF")
+        disp.image(image, rotation)
+        
+
+
+
+
+
+
+
+
+
+
+
+
+
         #if buttonA.value:
         #    draw.rectangle((0, 0, width, height), outline=0, fill=0)
         #    draw.text((x, 40), "Shutdown", font=font, fill="#FF0000")
