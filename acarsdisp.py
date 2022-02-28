@@ -18,7 +18,7 @@ def getData():
         return(False, "")
 
     else:
-        rawData = data.decode('utf-8').replace("\r\n","");
+        rawData = data.decode('utf-8').replace("\r","").replace("\n","");
         try:
             j = json.loads(rawData)
 
