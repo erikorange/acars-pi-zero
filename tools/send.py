@@ -5,7 +5,7 @@ import time
 def loadTestData():
     x=[]
     x.append('{"timestamp":1637698093.4839849,"station_id":"rpi-zero-1","channel":0,"freq":131.550,"level":-14,"error":0,"mode":"2","label":"Q0","block_id":"6","ack":false,"tail":"N641AE","flight":"PT6176","msgno":"M32A"}')
-    x.append('{"timestamp":1637698379.6292551,"station_id":"rpi-zero-1","channel":0,"freq":131.550,"level":-13,"error":0,"mode":"2","label":"5Z","block_id":"4","ack":false,"tail":"N425UA","flight":"UA1003","msgno":"M44A","text":"/B6 DFWEWR EWR R4R"}')
+    x.append('{"timestamp":1637698379.6292551,"station_id":"rpi-zero-1","channel":0,"freq":131.550,"level":-13,"error":0,"mode":"2","label":"5Z","block_id":"4","ack":false,"tail":"N425UA","flight":"UA1003","msgno":"M44A","text":"DFWEWR"}')
     x.append('{"timestamp":1637698389.45926,"station_id":"rpi-zero-1","channel":0,"freq":131.550,"level":-13,"error":0,"mode":"2","label":"5Z","block_id":"5","ack":"S","tail":"N425UA","flight":"UA1003","msgno":"M45A","text":"/B6 DFWEWR EWR R29"}')
     x.append('{"timestamp":1637698403.4676731,"station_id":"rpi-zero-1","channel":0,"freq":131.550,"level":-13,"error":0,"mode":"2","label":"5Z","block_id":"5","ack":false,"tail":"N425UA","flight":"UA1003","msgno":"M45A","text":"/B6 DFWEWR EWR R29"}')
     x.append('{"timestamp":1637698406.9086061,"station_id":"rpi-zero-1","channel":0,"freq":131.550,"level":-13,"error":0,"mode":"2","label":"_d","block_id":"6","ack":"T","tail":"N425UA","flight":"UA1003","msgno":"S14A"}')
@@ -43,4 +43,4 @@ while True:
             else:
                 retry = False
 
-        time.sleep(2)
+        time.sleep(20)
