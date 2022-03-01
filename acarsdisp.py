@@ -64,7 +64,7 @@ rotation = 270
 draw = ImageDraw.Draw(image)
 
 # Draw a filled box to clear the image.
-draw.rectangle((0, 0, width, height), outline=0, fill=(0, 4, 75))
+draw.rectangle((0, 0, width, height), outline=0, fill=(0, 0, 0))
 disp.image(image, rotation)
 
 top = -5
@@ -98,38 +98,55 @@ disp.image(image, rotation)
 
 lastCallsign = ""
 curCallsign = ""
+hasText = False
 
 while True:
     (status, j) = getData()
     
     if (status):
+        # got an acars packet, extract data
         count += 1
         curCallsign = j['flight']
         timestamp = time.strftime('%m-%d-%Y %H:%M:%S', time.localtime(j['timestamp']))
         if 'text' in j:
             hasText = True
-            s_message = j['text']
-            s_width = 20
-            s_padding = ''.ljust(s_width - 1)
-            s_text = s_padding + s_message + s_padding
-            s_idx = 0
+            message = j['text']
 
         else:
             hasText = False
             
-    
-        draw.rectangle((0, 0, width, height), outline=0, fill=(0, 4, 75))
+        # draw everything, including message
+        draw.rectangle((0, 0, width, height), outline=0, fill=(0, 0, 0))
         y = top
-        draw.text((x, y), curCallsign, font=csFont, fill=(255, 165, 0))
+
+        # center the callsign
+        csWidth, csHeight = draw.textsize(curCallsign, font=csFont)
+        draw.text((x + (width - csWidth)/2, y), curCallsign, font=csFont, fill=(0, 255, 0))
+        
         draw.text((x, 40), timestamp, font=font, fill="#FFFF00")
         
         if hasText:
-            draw.text((x, 70), s_message[0:20], font=msgFont, fill="#FF00FF")
-        else:
-            draw.text((x, 70), "<no message>", font=msgFont, fill="#FF00FF")
+            mWidth, mHeight = draw.textsize(message, font=msgFont)
+            if (mWidth > width):
+                x_msg = width
+            else:
+                x_msg = 0
+
+            draw.text((x_msg, 70), message, font=msgFont, fill="#FF00FF")
+            
 
         draw.text((105, 105), str(count), font=font, fill="#FFFFFF")
         disp.image(image, rotation)
+    
+    if (hasText and mWidth > width):
+        draw.rectangle((0, 70, width, 70+mHeight), outline=0, fill=(0, 0, 0))
+        x_msg -= 12
+        draw.text((x_msg, 70), message, font=msgFont, fill="#FF00FF")
+        disp.image(image, rotation)
+        if (abs(x_msg) > mWidth):
+            x_msg = width
+
+
         
 
 
