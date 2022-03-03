@@ -8,6 +8,7 @@ from PIL import Image, ImageDraw, ImageFont
 from adafruit_rgb_display import st7789
 import socket
 import json
+from subprocess import call
 
 
 def getData():
@@ -27,6 +28,42 @@ def getData():
 
         else:
             return(True, j)
+
+
+def paintInfo(packet, draw, width, height, x, top, csFont, font, msgFont, idx, numPackets, disp, image, rotation):
+    draw.rectangle((0, 0, width, height), outline=0, fill=(0, 0, 0))
+    y = top
+    # center and draw callsign
+    csWidth, csHeight = draw.textsize(packet['flight'], font=csFont)
+    draw.text((x + (width - csWidth)/2, y), packet['flight'], font=csFont, fill=(0, 255, 0))
+    
+    # draw timestamp
+    draw.text((x, 40), packet['timestamp'], font=font, fill="#FFFF00")
+    
+    # draw message if there is one
+    if packet['hasMessage']:
+        mWidth, mHeight = draw.textsize(packet['message'], font=msgFont)
+        if (mWidth > width):
+            x_msg = width       # scrollable, draw offscreen
+        else:
+            x_msg = 0           # not scrollable, draw onscreen
+
+        draw.text((x_msg, 70), packet['message'], font=msgFont, fill="#FF00FF")
+
+    else:
+        mWidth = 0
+        mHeight = 0
+        x_msg = 0
+        
+    # center and draw the count
+    countStr = f'{idx} of {numPackets}'
+    cWidth, cHeight = draw.textsize(countStr, font=font)
+    draw.text((x + (width - cWidth)/2, 105), countStr, font=font, fill=(0, 255, 255))
+
+    # repaint screen
+    disp.image(image, rotation)
+    return(mWidth, mHeight, x_msg)
+
 
 
 # Configuration for CS and DC pins (these are FeatherWing defaults on M0/M4):
@@ -85,129 +122,77 @@ buttonB = digitalio.DigitalInOut(board.D24)
 buttonA.switch_to_input()
 buttonB.switch_to_input()
 
-pagenum=1
-
 sck = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sck.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 sck.bind(('127.0.0.1', 5555))
 sck.setblocking(0)
 
-msg = "Listening..."
-draw.text((x, 50), msg, font=msgFont, fill="#00FF00")
+packets=[]
+
+draw.text((x, 50), "Waiting for ACARS...", font=font, fill="#00FF00")
 disp.image(image, rotation)
 
-lastCallsign = ""
 curCallsign = ""
-hasText = False
+hasMessage = False
+curMessage = ""
+idx = 0
+pageNum = 0
 
 while True:
     (status, j) = getData()
     
     if (status):
         # got an acars packet, extract data
-        count += 1
+        idx += 1
+        pageNum = idx
+
         curCallsign = j['flight']
-        timestamp = time.strftime('%m-%d-%Y %H:%M:%S', time.localtime(j['timestamp']))
+
+        p={}
+        p['timestamp'] = time.strftime('%m-%d-%Y %H:%M:%S', time.localtime(j['timestamp']))
+        p['tail'] = j['tail']
+        p['flight'] = j['flight']
         if 'text' in j:
-            hasText = True
-            message = j['text']
+            hasMessage = True
+            p['hasMessage'] = hasMessage
+            p['message'] = j['text']
 
         else:
-            hasText = False
-            
-        # draw everything, including message
-        draw.rectangle((0, 0, width, height), outline=0, fill=(0, 0, 0))
-        y = top
-
-        # center the callsign
-        csWidth, csHeight = draw.textsize(curCallsign, font=csFont)
-        draw.text((x + (width - csWidth)/2, y), curCallsign, font=csFont, fill=(0, 255, 0))
+            hasMessage = False
+            p['hasMessage'] = hasMessage
+            p['message'] = ''
         
-        draw.text((x, 40), timestamp, font=font, fill="#FFFF00")
+        packets.append(p)
         
-        if hasText:
-            mWidth, mHeight = draw.textsize(message, font=msgFont)
-            if (mWidth > width):
-                x_msg = width
-            else:
-                x_msg = 0
+        (mWidth, mHeight, x_msg) = paintInfo(packets[idx-1], draw, width, height, x, top, csFont, font, msgFont, idx, len(packets), disp, image, rotation)
 
-            draw.text((x_msg, 70), message, font=msgFont, fill="#FF00FF")
-            
-
-        draw.text((105, 105), str(count), font=font, fill="#FFFFFF")
-        disp.image(image, rotation)
+        
     
-    if (hasText and mWidth > width):
+
+    # update scroll if there's a message and it's scrollable
+    if (hasMessage and mWidth > width):
         draw.rectangle((0, 70, width, 70+mHeight), outline=0, fill=(0, 0, 0))
         x_msg -= 12
-        draw.text((x_msg, 70), message, font=msgFont, fill="#FF00FF")
+        draw.text((x_msg, 70), packets[pageNum-1]['message'], font=msgFont, fill="#FF00FF")
         disp.image(image, rotation)
         if (abs(x_msg) > mWidth):
             x_msg = width
 
-
+    if not buttonA.value:
+        if (idx > 0 and (pageNum > 1)):
+            pageNum -= 1
+            (mWidth, mHeight, x_msg) = paintInfo(packets[pageNum-1], draw, width, height, x, top, csFont, font, msgFont, pageNum, len(packets), disp, image, rotation)
+            hasMessage = packets[pageNum-1]['hasMessage']
+    
+    if not buttonB.value:
+        if (pageNum < len(packets)):
+            pageNum += 1
+            (mWidth, mHeight, x_msg) = paintInfo(packets[pageNum-1], draw, width, height, x, top, csFont, font, msgFont, pageNum, len(packets), disp, image, rotation)
+            hasMessage = packets[pageNum-1]['hasMessage']
+    
+    if not buttonA.value and not buttonB.value:
+        draw.rectangle((0, 0, width, height), outline=0, fill=(0, 0, 0))
+        draw.text((0, 50), "SHUTDOWN", font=csFont, fill="#FF0000")
+        disp.image(image, rotation)
+        call("sudo shutdown now --poweroff", shell=True)
         
-
-
-
-
-
-
-
-
-
-
-
-
-
-        #if buttonA.value:
-        #    draw.rectangle((0, 0, width, height), outline=0, fill=0)
-        #    draw.text((x, 40), "Shutdown", font=font, fill="#FF0000")
-        #    disp.image(image, rotation)
-
-        # scroll existing test
-
-        #if (curState == State.INFO):
-        #    if (startAgain):
-        #        startTime = datetime.datetime.now()
-        #        startCount = adsbCount
-        #        startAgain = False
-        #    
-        #    endTime = datetime.datetime.now()
-        #    delta = (endTime - startTime).total_seconds()
-        #    if (delta >= 1.0):
-        #        squitterRate = adsbCount - startCount
-        #        startAgain = True
-
-
-
-#    s_message = "This is a test of a very long scrolling message with no CR or LFs."
-#    s_width = 20
-#    s_padding = ''.ljust(s_width - 1)
-#    s_text = s_padding + s_message + s_padding
-#    for idx in range(0, len(s_text) - s_width + 1):
-#        callsign="US1735"
-#        logdatetime="11-23-21 20:08:46"
-#        msgNum=f'({pagenum}) N354'
-#        y = top
-#        draw.text((x, y), callsign, font=font, fill="#FFFFFF")
-#        y += font.getsize(callsign)[1] + 2
-#        draw.text((x, y), logdatetime, font=font, fill="#FFFF00")
-#        y += font.getsize(logdatetime)[1] + 2
-#        draw.text((x, y), msgNum, font=font, fill="#0000FF")
-#        y += font.getsize(msgNum)[1] + 2
-#        
-#        draw.text((x, y), s_text[idx:idx+s_width], font=font, fill="#FF00FF")
-#        disp.image(image, rotation)
-#        time.sleep(0.05)
-#        draw.rectangle((0, 0, width, height), outline=0, fill=0)
-#
-#        if buttonA.value:
-#            pagenum = pagenum - 1
-#            if pagenum < 0:
-#                pagenum = 1
-#
-#        if buttonB.value:
-#            pagenum += 1
-#
