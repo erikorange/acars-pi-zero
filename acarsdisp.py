@@ -40,21 +40,14 @@ def paintInfo(packet, draw, width, height, x, top, csFont, font, msgFont, idx, n
     # draw timestamp
     draw.text((x, 40), packet['timestamp'], font=font, fill="#FFFF00")
     
-    # draw message if there is one
-    if packet['hasMessage']:
-        mWidth, mHeight = draw.textsize(packet['message'], font=msgFont)
-        if (mWidth > width):
-            x_msg = width       # scrollable, draw offscreen
-        else:
-            x_msg = 0           # not scrollable, draw onscreen
-
-        draw.text((x_msg, 70), packet['message'], font=msgFont, fill="#FF00FF")
-
+    # draw message
+    mWidth, mHeight = draw.textsize(packet['message'], font=msgFont)
+    if (mWidth > width):
+        x_msg = width       # scrollable, draw offscreen
     else:
-        mWidth = 0
-        mHeight = 0
-        x_msg = 0
-        
+        x_msg = 0           # not scrollable, draw onscreen
+    draw.text((x_msg, 70), packet['message'], font=msgFont, fill="#FF00FF")
+
     # center and draw the count
     countStr = f'{idx} of {numPackets}'
     cWidth, cHeight = draw.textsize(countStr, font=font)
@@ -132,9 +125,7 @@ packets=[]
 draw.text((x, 50), "Waiting for ACARS...", font=font, fill="#00FF00")
 disp.image(image, rotation)
 
-curCallsign = ""
-hasMessage = False
-curMessage = ""
+mWidth = 0
 idx = 0
 pageNum = 0
 
@@ -142,35 +133,27 @@ while True:
     (status, j) = getData()
     
     if (status):
-        # got an acars packet, extract data
-        idx += 1
-        pageNum = idx
-
-        curCallsign = j['flight']
-
-        p={}
-        p['timestamp'] = time.strftime('%m-%d-%Y %H:%M:%S', time.localtime(j['timestamp']))
-        p['tail'] = j['tail']
-        p['flight'] = j['flight']
         if 'text' in j:
-            hasMessage = True
-            p['hasMessage'] = hasMessage
+
+        # got an acars packet with a message, extract data
+            idx += 1
+            pageNum = idx
+
+            p={}
+            p['timestamp'] = time.strftime('%m-%d-%Y %H:%M:%S', time.localtime(j['timestamp']))
+            p['tail'] = j['tail']
+            p['flight'] = j['flight']
             p['message'] = j['text']
 
-        else:
-            hasMessage = False
-            p['hasMessage'] = hasMessage
-            p['message'] = ''
-        
-        packets.append(p)
-        
-        (mWidth, mHeight, x_msg) = paintInfo(packets[idx-1], draw, width, height, x, top, csFont, font, msgFont, idx, len(packets), disp, image, rotation)
+            packets.append(p)
+
+            (mWidth, mHeight, x_msg) = paintInfo(packets[idx-1], draw, width, height, x, top, csFont, font, msgFont, idx, len(packets), disp, image, rotation)
 
         
     
 
-    # update scroll if there's a message and it's scrollable
-    if (hasMessage and mWidth > width):
+    # update scroll if it's scrollable
+    if (mWidth > width):
         draw.rectangle((0, 70, width, 70+mHeight), outline=0, fill=(0, 0, 0))
         x_msg -= 12
         draw.text((x_msg, 70), packets[pageNum-1]['message'], font=msgFont, fill="#FF00FF")
@@ -182,13 +165,11 @@ while True:
         if (idx > 0 and (pageNum > 1)):
             pageNum -= 1
             (mWidth, mHeight, x_msg) = paintInfo(packets[pageNum-1], draw, width, height, x, top, csFont, font, msgFont, pageNum, len(packets), disp, image, rotation)
-            hasMessage = packets[pageNum-1]['hasMessage']
     
     if not buttonB.value:
         if (pageNum < len(packets)):
             pageNum += 1
             (mWidth, mHeight, x_msg) = paintInfo(packets[pageNum-1], draw, width, height, x, top, csFont, font, msgFont, pageNum, len(packets), disp, image, rotation)
-            hasMessage = packets[pageNum-1]['hasMessage']
     
     if not buttonA.value and not buttonB.value:
         draw.rectangle((0, 0, width, height), outline=0, fill=(0, 0, 0))
