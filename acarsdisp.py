@@ -1,6 +1,7 @@
 # nohup python3 stats.py &
 
 import time
+import datetime
 import subprocess
 import digitalio
 import board
@@ -10,170 +11,222 @@ import socket
 import json
 from subprocess import call
 
+class Display():
 
-def getData():
-    try:
-        data, address = sck.recvfrom(1024)
+    def __init__(self):
+        cs_pin = digitalio.DigitalInOut(board.CE0)
+        dc_pin = digitalio.DigitalInOut(board.D25)
+        reset_pin = None
+        BAUDRATE = 64000000
 
-    except Exception as msg:
-        return(False, "")
+        spi = board.SPI()
+        self.__disp = st7789.ST7789(
+            spi,
+            cs=cs_pin,
+            dc=dc_pin,
+            rst=reset_pin,
+            baudrate=BAUDRATE,
+            width=135,
+            height=240,
+            x_offset=53,
+            y_offset=40,
+        )
 
-    else:
-        rawData = data.decode('utf-8').replace("\r","").replace("\n","");
+        self.__height = self.__disp.width  # we swap height/width to rotate it to landscape!
+        self.__width = self.__disp.height
+        self.__image = Image.new("RGB", (self.__width, self.__height))
+        self.__draw = ImageDraw.Draw(self.__image)
+        self.__rotation = 270
+        self.__top = -5
+        self.__x = 0
+        self.__mWidth = 0
+
+        self.__initFonts()
+        self.__initColors()
+        self.__enableBacklight()
+        self.__enableButtons()
+
+
+    def __initFonts(self):
+        self.__font = ImageFont.truetype("/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans.ttf", 22)
+        self.__msgFont = ImageFont.truetype("/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans.ttf", 30)
+        self.__csFont = ImageFont.truetype("/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans.ttf", 40)
+
+    def __initColors(self):
+        self.__black        = (0,0,0)
+        self.__green        = (0,255,0)
+        self.__yellow       = (255,255,0)
+        self.__magenta      = (255, 0, 255)
+        self.__red          = (255, 0, 0)
+        self.__cyan         = (0, 255, 255)
+
+    def __enableBacklight(self):
+        backlight = digitalio.DigitalInOut(board.D22)
+        backlight.switch_to_output()
+        backlight.value = True
+
+    def __enableButtons(self):
+        self.__buttonA = digitalio.DigitalInOut(board.D23)
+        self.__buttonB = digitalio.DigitalInOut(board.D24)
+        self.__buttonA.switch_to_input()
+        self.__buttonB.switch_to_input()
+    
+    def buttonAPressed(self):
+        return(not self.__buttonA.value)
+
+    def buttonBPressed(self):
+        return(not self.__buttonB.value)
+
+    def __renderDisplay(self):
+        self.__disp.image(self.__image, self.__rotation)
+
+    def clearDisplay(self):
+        self.__draw.rectangle((0, 0, self.__width, self.__height), outline=0, fill=self.__black)
+
+    def showOpeningMessage(self):
+        self.__draw.text((self.__x, 50), "Waiting for ACARS...", font=self.__font, fill=self.__green)
+        self.__renderDisplay()
+
+    def paintInfo(self, packet, idx, numPackets):
+        self.clearDisplay()
+        y = self.__top
+
+        # center and draw callsign
+        csWidth, csHeight = self.__draw.textsize(packet['flight'], font=self.__csFont)
+        self.__draw.text((self.__x + (self.__width - csWidth)/2, y), packet['flight'], font=self.__csFont, fill=self.__green)
+
+        # draw timestamp
+        self.__draw.text((self.__x, 40), packet['timestamp'], font=self.__font, fill=self.__yellow)
+
+        # draw message
+        self.__mWidth, self.__mHeight = self.__draw.textsize(packet['message'], font=self.__msgFont)
+        if (self.__mWidth > self.__width):
+            self.__x_msg = self.__width       # scrollable, draw offscreen
+        else:
+            self.__x_msg = 0           # not scrollable, draw onscreen
+
+        self.__draw.text((self.__x_msg, 70), packet['message'], font=self.__msgFont, fill=self.__magenta)
+
+        # center and draw the count
+        countStr = f'{idx} of {numPackets}'
+        cWidth, cHeight = self.__draw.textsize(countStr, font=self.__font)
+        self.__draw.text((self.__x + (self.__width - cWidth)/2, 105), countStr, font=self.__font, fill=self.__cyan)
+
+        self.__renderDisplay()
+
+    def scrollMessage(self):
+        if (self.__mWidth > self.__width):
+            self.__draw.rectangle((0, 70, self.__width, 70+self.__mHeight), outline=0, fill=self.__black)
+            self.__x_msg -= 12
+            self.__draw.text((self.__x_msg, 70), packets[pageNum-1]['message'], font=self.__msgFont, fill=self.__magenta)
+            self.__renderDisplay()
+            if (abs(self.__x_msg) > self.__mWidth):
+                self.__x_msg = self.__width
+
+    def flipFlightTail(self, packet, tailFlag):
+        if (tailFlag):
+            key = 'tail'
+        else:
+            key = 'flight'
+
+        strWidth, strHeight = self.__draw.textsize(packet[key], font=self.__csFont)
+        self.__draw.rectangle((0, 0, self.__width, strHeight), outline=0, fill=self.__black)
+        y = self.__top
+        self.__draw.text((self.__x + (self.__width - strWidth)/2, y), packet[key], font=self.__csFont, fill=self.__green)
+        self.__renderDisplay()
+        return
+    
+    def showShutdownMessage(self):
+        self.clearDisplay()
+        self.__draw.text((0, 50), "SHUTDOWN", font=self.__csFont, fill=self.__red)
+        self.__renderDisplay()
+
+
+class NetListener():
+
+    def __init__(self, addr, port):
+        self.__sck = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.__sck.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        self.__sck.bind((addr, port))
+        self.__sck.setblocking(0)
+        
+    def getData(self):
         try:
-            j = json.loads(rawData)
+            data, address = self.__sck.recvfrom(1024)
 
-        except Exception as xcp:
+        except Exception as msg:
             return(False, "")
 
         else:
-            return(True, j)
+            rawData = data.decode('utf-8').replace("\r","").replace("\n","");
+            try:
+                j = json.loads(rawData)
+
+            except Exception as xcp:
+                return(False, "")
+
+            else:
+                return(True, j)
 
 
-def paintInfo(packet, draw, width, height, x, top, csFont, font, msgFont, idx, numPackets, disp, image, rotation):
-    draw.rectangle((0, 0, width, height), outline=0, fill=(0, 0, 0))
-    y = top
-    # center and draw callsign
-    csWidth, csHeight = draw.textsize(packet['flight'], font=csFont)
-    draw.text((x + (width - csWidth)/2, y), packet['flight'], font=csFont, fill=(0, 255, 0))
-    
-    # draw timestamp
-    draw.text((x, 40), packet['timestamp'], font=font, fill="#FFFF00")
-    
-    # draw message
-    mWidth, mHeight = draw.textsize(packet['message'], font=msgFont)
-    if (mWidth > width):
-        x_msg = width       # scrollable, draw offscreen
-    else:
-        x_msg = 0           # not scrollable, draw onscreen
-    draw.text((x_msg, 70), packet['message'], font=msgFont, fill="#FF00FF")
-
-    # center and draw the count
-    countStr = f'{idx} of {numPackets}'
-    cWidth, cHeight = draw.textsize(countStr, font=font)
-    draw.text((x + (width - cWidth)/2, 105), countStr, font=font, fill=(0, 255, 255))
-
-    # repaint screen
-    disp.image(image, rotation)
-    return(mWidth, mHeight, x_msg)
+def loadAcarsData(j):
+    p={}
+    p['timestamp'] = time.strftime('%m-%d-%Y %H:%M:%S', time.localtime(j['timestamp']))
+    p['tail'] = j['tail']
+    p['flight'] = j['flight']
+    p['message'] = j['text']
+    return(p)
 
 
+display = Display()
+display.clearDisplay()
+display.showOpeningMessage()
 
-# Configuration for CS and DC pins (these are FeatherWing defaults on M0/M4):
-cs_pin = digitalio.DigitalInOut(board.CE0)
-dc_pin = digitalio.DigitalInOut(board.D25)
-reset_pin = None
-
-# Config for display baudrate (default max is 24mhz):
-BAUDRATE = 64000000
-
-# Setup SPI bus using hardware SPI:
-spi = board.SPI()
-
-# Create the ST7789 display:
-disp = st7789.ST7789(
-    spi,
-    cs=cs_pin,
-    dc=dc_pin,
-    rst=reset_pin,
-    baudrate=BAUDRATE,
-    width=135,
-    height=240,
-    x_offset=53,
-    y_offset=40,
-)
-
-# Create blank image for drawing.
-# Make sure to create image with mode 'RGB' for full color.
-height = disp.width  # we swap height/width to rotate it to landscape!
-width = disp.height
-image = Image.new("RGB", (width, height))
-rotation = 270
-
-# Get drawing object to draw on image.
-draw = ImageDraw.Draw(image)
-
-# Draw a filled box to clear the image.
-draw.rectangle((0, 0, width, height), outline=0, fill=(0, 0, 0))
-disp.image(image, rotation)
-
-top = -5
-x = 0
-count = 0
-
-font = ImageFont.truetype("/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans.ttf", 22)
-msgFont = ImageFont.truetype("/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans.ttf", 30)
-csFont = ImageFont.truetype("/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans.ttf", 40)
-
-# Turn on the backlight
-backlight = digitalio.DigitalInOut(board.D22)
-backlight.switch_to_output()
-backlight.value = True
-
-buttonA = digitalio.DigitalInOut(board.D23)
-buttonB = digitalio.DigitalInOut(board.D24)
-buttonA.switch_to_input()
-buttonB.switch_to_input()
-
-sck = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-sck.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-sck.bind(('127.0.0.1', 5555))
-sck.setblocking(0)
+listener = NetListener('127.0.0.1', 5555)
 
 packets=[]
-
-draw.text((x, 50), "Waiting for ACARS...", font=font, fill="#00FF00")
-disp.image(image, rotation)
-
-mWidth = 0
 idx = 0
 pageNum = 0
 
-while True:
-    (status, j) = getData()
-    
-    if (status):
-        if 'text' in j:
+startAgain = True
+tailFlag = False
 
-        # got an acars packet with a message, extract data
+while True:
+    (status, j) = listener.getData()
+    
+    if (status):            # got an acars packet
+        if 'text' in j:     # with a message
             idx += 1
             pageNum = idx
+            packets.append(loadAcarsData(j))
+            display.paintInfo(packets[idx-1], idx, len(packets))
 
-            p={}
-            p['timestamp'] = time.strftime('%m-%d-%Y %H:%M:%S', time.localtime(j['timestamp']))
-            p['tail'] = j['tail']
-            p['flight'] = j['flight']
-            p['message'] = j['text']
+    display.scrollMessage()
 
-            packets.append(p)
-
-            (mWidth, mHeight, x_msg) = paintInfo(packets[idx-1], draw, width, height, x, top, csFont, font, msgFont, idx, len(packets), disp, image, rotation)
-
+    if (idx > 0):
+        if (startAgain):
+            startTime = datetime.datetime.now()
+            startAgain = False
         
-    
+        endTime = datetime.datetime.now()
+        delta = (endTime - startTime).total_seconds()
+        if (delta >= 2.0):
+            tailFlag = not tailFlag
+            startAgain = True
+            display.flipFlightTail(packets[pageNum-1], tailFlag)
+        
 
-    # update scroll if it's scrollable
-    if (mWidth > width):
-        draw.rectangle((0, 70, width, 70+mHeight), outline=0, fill=(0, 0, 0))
-        x_msg -= 12
-        draw.text((x_msg, 70), packets[pageNum-1]['message'], font=msgFont, fill="#FF00FF")
-        disp.image(image, rotation)
-        if (abs(x_msg) > mWidth):
-            x_msg = width
-
-    if not buttonA.value:
+    if display.buttonAPressed():
         if (idx > 0 and (pageNum > 1)):
             pageNum -= 1
-            (mWidth, mHeight, x_msg) = paintInfo(packets[pageNum-1], draw, width, height, x, top, csFont, font, msgFont, pageNum, len(packets), disp, image, rotation)
+            display.paintInfo(packets[pageNum-1], pageNum, len(packets))
     
-    if not buttonB.value:
+    if display.buttonBPressed():
         if (pageNum < len(packets)):
             pageNum += 1
-            (mWidth, mHeight, x_msg) = paintInfo(packets[pageNum-1], draw, width, height, x, top, csFont, font, msgFont, pageNum, len(packets), disp, image, rotation)
+            display.paintInfo(packets[pageNum-1], pageNum, len(packets))
     
-    if not buttonA.value and not buttonB.value:
-        draw.rectangle((0, 0, width, height), outline=0, fill=(0, 0, 0))
-        draw.text((0, 50), "SHUTDOWN", font=csFont, fill="#FF0000")
-        disp.image(image, rotation)
+    if display.buttonAPressed() and display.buttonBPressed():
+        display.showShutdownMessage()
         call("sudo shutdown now --poweroff", shell=True)
         
