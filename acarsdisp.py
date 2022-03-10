@@ -51,6 +51,7 @@ class Display():
         self.__font = ImageFont.truetype("/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans.ttf", 22)
         self.__msgFont = ImageFont.truetype("/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans.ttf", 30)
         self.__csFont = ImageFont.truetype("/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans.ttf", 40)
+        self.__titleFont = ImageFont.truetype("/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans.ttf", 42)
 
     def __initColors(self):
         self.__black        = (0,0,0)
@@ -84,7 +85,14 @@ class Display():
         self.__draw.rectangle((0, 0, self.__width, self.__height), outline=0, fill=self.__black)
 
     def showOpeningMessage(self):
-        self.__draw.text((self.__x, 50), "Waiting for ACARS...", font=self.__font, fill=self.__green)
+        y=self.__top + 3
+        tWidth, tHeight = self.__draw.textsize("Scanning", font=self.__titleFont)
+        self.__draw.text((self.__x + (self.__width - tWidth)/2, y), "Scanning", font=self.__titleFont, fill=self.__red)
+        tWidth, tHeight = self.__draw.textsize("for", font=self.__titleFont)
+        self.__draw.text((self.__x + (self.__width - tWidth)/2, y+(tHeight)+5), "for", font=self.__titleFont, fill=self.__red)
+        tWidth, tHeight = self.__draw.textsize("ACARS", font=self.__titleFont)
+        self.__draw.text((self.__x + (self.__width - tWidth)/2, y+(tHeight*2)+10), "ACARS", font=self.__titleFont, fill=self.__red)
+
         self.__renderDisplay()
 
     def paintInfo(self, packet, idx, numPackets):
@@ -96,7 +104,7 @@ class Display():
         self.__draw.text((self.__x + (self.__width - csWidth)/2, y), packet['flight'], font=self.__csFont, fill=self.__green)
 
         # draw timestamp
-        self.__draw.text((self.__x, 40), packet['timestamp'], font=self.__font, fill=self.__yellow)
+        self.__draw.text((self.__x, 42), packet['timestamp'], font=self.__font, fill=self.__yellow)
 
         # draw message
         self.__mWidth, self.__mHeight = self.__draw.textsize(packet['message'], font=self.__msgFont)
@@ -152,15 +160,15 @@ class NetListener():
         
     def getData(self):
         try:
-            data, address = self.__sck.recvfrom(1024)
+            acarsData, address = self.__sck.recvfrom(1024)
 
         except Exception as msg:
             return(False, "")
 
         else:
-            rawData = data.decode('utf-8').replace("\r","").replace("\n","");
+            acarsData_s = acarsData.decode('utf-8')
             try:
-                j = json.loads(rawData)
+                j = json.loads(acarsData_s)
 
             except Exception as xcp:
                 return(False, "")
@@ -174,7 +182,7 @@ def loadAcarsData(j):
     p['timestamp'] = time.strftime('%m-%d-%Y %H:%M:%S', time.localtime(j['timestamp']))
     p['tail'] = j['tail']
     p['flight'] = j['flight']
-    p['message'] = j['text']
+    p['message'] = ''.join(j['text'].splitlines())
     return(p)
 
 
