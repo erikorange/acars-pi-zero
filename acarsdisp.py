@@ -9,6 +9,7 @@ from PIL import Image, ImageDraw, ImageFont
 from adafruit_rgb_display import st7789
 import socket
 import json
+import operator
 from subprocess import call
 
 class Display():
@@ -48,6 +49,7 @@ class Display():
 
 
     def __initFonts(self):
+        self.__cntFont = ImageFont.truetype("/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans.ttf", 15)
         self.__font = ImageFont.truetype("/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans.ttf", 22)
         self.__msgFont = ImageFont.truetype("/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans.ttf", 30)
         self.__csFont = ImageFont.truetype("/usr/share/fonts/truetype/ttf-dejavu/DejaVuSans.ttf", 40)
@@ -57,9 +59,11 @@ class Display():
         self.__black        = (0,0,0)
         self.__green        = (0,255,0)
         self.__yellow       = (255,255,0)
-        self.__magenta      = (255, 0, 255)
         self.__red          = (255, 0, 0)
         self.__cyan         = (0, 255, 255)
+        self.__dkblue       = (0, 0, 80)
+        self.__white        = (255, 255, 255)
+        self.__eraseColor   = self.__dkblue
 
     def __enableBacklight(self):
         backlight = digitalio.DigitalInOut(board.D22)
@@ -82,7 +86,7 @@ class Display():
         self.__disp.image(self.__image, self.__rotation)
 
     def clearDisplay(self):
-        self.__draw.rectangle((0, 0, self.__width, self.__height), outline=0, fill=self.__black)
+        self.__draw.rectangle((0, 0, self.__width, self.__height), outline=self.__eraseColor, fill=self.__eraseColor)
 
     def showOpeningMessage(self):
         y=self.__top + 3
@@ -100,8 +104,11 @@ class Display():
         y = self.__top
 
         # center and draw callsign
-        csWidth, csHeight = self.__draw.textsize(packet['flight'], font=self.__csFont)
-        self.__draw.text((self.__x + (self.__width - csWidth)/2, y), packet['flight'], font=self.__csFont, fill=self.__green)
+        txt = packet['flight']
+        csWidth, csHeight = self.__draw.textsize(txt, font=self.__csFont)
+        self.__draw.text((self.__x + (self.__width - csWidth)/2, y), txt, font=self.__csFont, fill=self.__green)
+        if (packet['count'] > 1):
+            self.__draw.text((220, 10), str(packet['count']), font=self.__cntFont, fill=self.__green)
 
         # draw timestamp
         self.__draw.text((self.__x, 42), packet['timestamp'], font=self.__font, fill=self.__yellow)
@@ -113,7 +120,7 @@ class Display():
         else:
             self.__x_msg = 0           # not scrollable, draw onscreen
 
-        self.__draw.text((self.__x_msg, 70), packet['message'], font=self.__msgFont, fill=self.__magenta)
+        self.__draw.text((self.__x_msg, 70), packet['message'], font=self.__msgFont, fill=self.__white)
 
         # center and draw the count
         countStr = f'{idx} of {numPackets}'
@@ -124,9 +131,9 @@ class Display():
 
     def scrollMessage(self):
         if (self.__mWidth > self.__width):
-            self.__draw.rectangle((0, 70, self.__width, 70+self.__mHeight), outline=0, fill=self.__black)
+            self.__draw.rectangle((0, 70, self.__width, 70+self.__mHeight), outline=self.__eraseColor, fill=self.__eraseColor)
             self.__x_msg -= 12
-            self.__draw.text((self.__x_msg, 70), packets[pageNum-1]['message'], font=self.__msgFont, fill=self.__magenta)
+            self.__draw.text((self.__x_msg, 70), packets[pageNum-1]['message'], font=self.__msgFont, fill=self.__white)
             self.__renderDisplay()
             if (abs(self.__x_msg) > self.__mWidth):
                 self.__x_msg = self.__width
@@ -138,9 +145,13 @@ class Display():
             key = 'flight'
 
         strWidth, strHeight = self.__draw.textsize(packet[key], font=self.__csFont)
-        self.__draw.rectangle((0, 0, self.__width, strHeight), outline=0, fill=self.__black)
+        self.__draw.rectangle((0, 0, self.__width, strHeight), outline=self.__eraseColor, fill=self.__eraseColor)
         y = self.__top
         self.__draw.text((self.__x + (self.__width - strWidth)/2, y), packet[key], font=self.__csFont, fill=self.__green)
+
+        if (packet['count'] > 1):
+            self.__draw.text((220, 10), str(packet['count']), font=self.__cntFont, fill=self.__green)
+
         self.__renderDisplay()
         return
     
@@ -179,12 +190,40 @@ class NetListener():
 
 def loadAcarsData(j):
     p={}
+    p['count'] = 0
+    p['timestamp_raw'] = j['timestamp']
     p['timestamp'] = time.strftime('%m-%d-%Y %H:%M:%S', time.localtime(j['timestamp']))
     p['tail'] = j['tail']
     p['flight'] = j['flight']
     p['message'] = ''.join(j['text'].splitlines())
     return(p)
 
+
+def updateList(dict, entry):
+    idx = 0
+    found = False
+
+    while (idx < len(dict) and not found):
+        item = dict[idx]
+        if (item["tail"] == entry["tail"] and \
+            item["flight"] == entry["flight"] and \
+            item["message"] == entry["message"]):
+            found = True
+        else:
+            idx += 1
+
+    if (found):             # we located a duplicate entry, so just update the timestamp and increment the count
+        print(f"{entry['flight']} : replacing")
+        dict[idx]["timestamp_raw"] = entry['timestamp_raw']
+        dict[idx]["timestamp"] = entry['timestamp']
+        dict[idx]["count"] += 1
+        dict = sorted(dict, key=operator.itemgetter('timestamp_raw'))
+    else:                   # this is a new unique entry, so append
+        print(f"{entry['flight']} : adding")
+        entry['count'] = 1
+        dict.append(entry)
+    
+    return dict
 
 display = Display()
 display.clearDisplay()
@@ -204,9 +243,10 @@ while True:
     
     if (status):            # got an acars packet
         if 'text' in j:     # with a message
-            idx += 1
+            entry = loadAcarsData(j)
+            packets = updateList(packets, entry)
+            idx = len(packets)
             pageNum = idx
-            packets.append(loadAcarsData(j))
             display.paintInfo(packets[idx-1], idx, len(packets))
 
     display.scrollMessage()
